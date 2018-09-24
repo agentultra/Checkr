@@ -1,9 +1,14 @@
 module Lib where
 
+import Control.Concurrent.STM
+import Control.Monad.Reader
 import Data.Aeson hiding (json)
+import Data.Default.Class
+import Data.Text.Lazy hiding (find)
 import Network.HTTP.Types.Status
-import Protolude hiding (get)
-import Web.Scotty
+import Protolude hiding (get, Text)
+--import Web.Scotty
+import Web.Scotty.Trans
 
 import Data.Monoid (mconcat)
 
@@ -23,18 +28,41 @@ instance ToJSON UserId
 instance ToJSON Email
 instance ToJSON User
 
-bob = User (UserId 1) "Bob" "Belcher" (Email "bob@burgers.com")
+newtype AppState = AppState { users :: [User] }
 
+bob = User (UserId 1) "Bob" "Belcher" (Email "bob@burgers.com")
 linda = User (UserId 2) "Linda" "Belcher" (Email "linda@burgers.com")
 
-users :: [User]
-users = [bob, linda]
+instance Default AppState where
+  def = AppState [bob, linda]
 
-run = scotty 3000 $ do
+newtype WebAction a = WebAction { runWebAction :: ReaderT (TVar AppState) IO a }
+  deriving (Applicative, Functor, Monad, MonadIO, MonadReader (TVar AppState))
+
+webAction :: MonadTrans t => WebAction a -> t WebAction a
+webAction = lift
+
+getState :: (AppState -> b) -> WebAction b
+getState f = ask >>= liftIO . readTVarIO >>= return . f
+
+modifyState :: (AppState -> AppState) -> WebAction ()
+modifyState f = ask >>= liftIO . atomically . flip modifyTVar' f
+
+run :: IO ()
+run = do
+  sync <- newTVarIO def
+  let runActionToIO m = runReaderT (runWebAction m) sync
+
+  scottyT 3000 runActionToIO app
+
+app :: ScottyT Text WebAction ()
+app = do
   get "/users" $ do
-    json $ users
+    users' <- webAction $ getState users
+    json $ users'
   get "/users/:id" $ do
     uid <- param "id"
-    case (find (\user -> userId user == UserId uid) users) of
-      Nothing -> status status404
+    users' <- webAction $ getState users
+    case (find (\user -> userId user == UserId uid) users') of
+      Nothing   -> status status404
       Just user -> json user
