@@ -1,3 +1,4 @@
+{-# LANGUAGE ScopedTypeVariables #-}
 module Lib where
 
 import Control.Concurrent.STM
@@ -7,7 +8,6 @@ import Data.Default.Class
 import Data.Text.Lazy hiding (find)
 import Network.HTTP.Types.Status
 import Protolude hiding (get, Text)
---import Web.Scotty
 import Web.Scotty.Trans
 
 import Data.Monoid (mconcat)
@@ -25,8 +25,11 @@ data User =
   deriving (Eq, Generic, Show)
 
 instance ToJSON UserId
+instance FromJSON UserId
 instance ToJSON Email
+instance FromJSON Email
 instance ToJSON User
+instance FromJSON User
 
 newtype AppState = AppState { users :: [User] }
 
@@ -66,3 +69,11 @@ app = do
     case (find (\user -> userId user == UserId uid) users') of
       Nothing   -> status status404
       Just user -> json user
+  post "/users" $ do
+    b <- body
+    let decodedUser :: Maybe User = decode b
+    case decodedUser of
+      Nothing -> status status406
+      Just user -> do
+        webAction $ modifyState $ \state -> state { users = (users state) ++ [user] }
+        redirect "/users"
