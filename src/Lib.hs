@@ -24,20 +24,26 @@ data User =
   }
   deriving (Eq, Generic, Show)
 
+data CreateUser =
+  CreateUser
+  { createUserFirstName :: Text
+  , createUserLastName  :: Text
+  , createUserEmail     :: Email
+  }
+  deriving (Eq, Generic, Show)
+
 instance ToJSON UserId
 instance FromJSON UserId
 instance ToJSON Email
 instance FromJSON Email
 instance ToJSON User
 instance FromJSON User
+instance FromJSON CreateUser
 
-newtype AppState = AppState { users :: [User] }
-
-bob = User (UserId 1) "Bob" "Belcher" (Email "bob@burgers.com")
-linda = User (UserId 2) "Linda" "Belcher" (Email "linda@burgers.com")
+data AppState = AppState { users :: [User], serial :: Int }
 
 instance Default AppState where
-  def = AppState [bob, linda]
+  def = AppState [] 0
 
 newtype WebAction a = WebAction { runWebAction :: ReaderT (TVar AppState) IO a }
   deriving (Applicative, Functor, Monad, MonadIO, MonadReader (TVar AppState))
@@ -50,6 +56,13 @@ getState f = ask >>= liftIO . readTVarIO >>= return . f
 
 modifyState :: (AppState -> AppState) -> WebAction ()
 modifyState f = ask >>= liftIO . atomically . flip modifyTVar' f
+
+addUser :: Text -> Text -> Email -> AppState -> AppState
+addUser firstName lastName email state =
+  let nextId = (serial state) + 1
+      user = User (UserId nextId) firstName lastName email
+  in
+    state { users = (users state) ++ [user], serial = nextId }
 
 run :: IO ()
 run = do
@@ -71,9 +84,13 @@ app = do
       Just user -> json user
   post "/users" $ do
     b <- body
-    let decodedUser :: Maybe User = decode b
+    let decodedUser :: Maybe CreateUser = decode b
     case decodedUser of
       Nothing -> status status406
       Just user -> do
-        webAction $ modifyState $ \state -> state { users = (users state) ++ [user] }
+        webAction $ modifyState $
+          addUser
+          (createUserFirstName user)
+          (createUserLastName user)
+          (createUserEmail user)
         redirect "/users"
