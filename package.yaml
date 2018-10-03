@@ -23,6 +23,7 @@ default-extensions:
   - DeriveGeneric
   - NoImplicitPrelude
   - OverloadedStrings
+  - GeneralizedNewtypeDeriving
 
 dependencies:
 - base >= 4.7 && < 5
@@ -32,8 +33,11 @@ library:
   source-dirs: src
   dependencies:
     - aeson
+    - data-default-class
     - http-types
+    - mtl
     - scotty
+    - stm
     - text
     - validation
 
