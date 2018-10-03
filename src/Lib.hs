@@ -1,3 +1,5 @@
+{-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 module Lib where
 
@@ -57,12 +59,24 @@ getState f = ask >>= liftIO . readTVarIO >>= return . f
 modifyState :: (AppState -> AppState) -> WebAction ()
 modifyState f = ask >>= liftIO . atomically . flip modifyTVar' f
 
-addUser :: Text -> Text -> Email -> AppState -> AppState
-addUser firstName lastName email state =
-  let nextId = (serial state) + 1
-      user = User (UserId nextId) firstName lastName email
-  in
-    state { users = (users state) ++ [user], serial = nextId }
+type Key = Int
+
+class MonadDB m v | m -> v where
+  getEntity :: Key -> m (Maybe v)
+  getEntities :: m [v]
+  insertEntity :: v -> m Key
+
+instance MonadDB WebAction User where
+  getEntity id            = do
+    users' <- getState users
+    return $ find (\user -> userId user == UserId id) users'
+  getEntities             = getState users
+  insertEntity user = do
+    state <- getState identity
+    let nextId = (serial state) + 1
+    let user' = user { userId = UserId nextId }
+    modifyState $ \_ -> state { users = (users state) ++ [user'], serial = nextId }
+    return nextId
 
 run :: IO ()
 run = do
@@ -74,12 +88,12 @@ run = do
 app :: ScottyT Text WebAction ()
 app = do
   get "/users" $ do
-    users' <- webAction $ getState users
+    users' <- webAction $ getEntities
     json $ users'
   get "/users/:id" $ do
     uid <- param "id"
-    users' <- webAction $ getState users
-    case (find (\user -> userId user == UserId uid) users') of
+    user' <- webAction $ getEntity uid
+    case user' of
       Nothing   -> status status404
       Just user -> json user
   post "/users" $ do
@@ -88,8 +102,9 @@ app = do
     case decodedUser of
       Nothing -> status status406
       Just user -> do
-        webAction $ modifyState $
-          addUser
+        webAction $ insertEntity $
+          User
+          (UserId (-1))
           (createUserFirstName user)
           (createUserLastName user)
           (createUserEmail user)
