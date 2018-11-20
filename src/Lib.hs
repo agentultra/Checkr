@@ -1,6 +1,6 @@
-{-# LANGUAGE FunctionalDependencies #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE TypeSynonymInstances #-}
 module Lib where
 
 import Control.Concurrent.STM
@@ -17,14 +17,36 @@ import Data.Monoid (mconcat)
 newtype UserId = UserId Int deriving (Eq, Generic, Show)
 newtype Email = Email Text deriving (Eq, Generic, Show)
 
-data User =
+data Safe = SafeState deriving (Eq, Generic, Show)
+data AtRisk = AtRiskState deriving (Eq, Generic, Show)
+data Unknown = UnknownState deriving (Eq, Generic, Show)
+data UserState = Safe | AtRisk | Unknown deriving (Eq, Generic, Show)
+
+data User a state =
   User
-  { userId        :: UserId
-  , userFirstName :: Text
-  , userLastName  :: Text
-  , userEmail     :: Email
+  { userId        :: a UserId
+  , userFirstName :: a Text
+  , userLastName  :: a Text
+  , userEmail     :: a Email
+  , userState     :: a state
   }
-  deriving (Eq, Generic, Show)
+  deriving (Generic)
+
+type SafeUser = User Identity Safe
+deriving instance Eq SafeUser
+deriving instance Show SafeUser
+
+type AtRiskUser = User Identity AtRisk
+deriving instance Eq AtRiskUser
+deriving instance Show AtRiskUser
+
+type UnknownUser = User Identity Unknown
+deriving instance Eq UnknownUser
+deriving instance Show UnknownUser
+
+type AnyUser = User Identity UserState
+deriving instance Eq AnyUser
+deriving instance Show AnyUser
 
 data CreateUser =
   CreateUser
@@ -38,11 +60,19 @@ instance ToJSON UserId
 instance FromJSON UserId
 instance ToJSON Email
 instance FromJSON Email
-instance ToJSON User
-instance FromJSON User
+instance ToJSON Safe
+instance FromJSON Safe
+instance ToJSON AtRisk
+instance FromJSON AtRisk
+instance ToJSON Unknown
+instance FromJSON Unknown
+instance ToJSON UserState
+instance FromJSON UserState
+instance ToJSON AnyUser
+instance FromJSON AnyUser
 instance FromJSON CreateUser
 
-data AppState = AppState { users :: [User], serial :: Int }
+data AppState = AppState { users :: [AnyUser], serial :: Int }
 
 instance Default AppState where
   def = AppState [] 0
@@ -66,15 +96,15 @@ class MonadDB m v | m -> v where
   getEntities :: m [v]
   insertEntity :: v -> m Key
 
-instance MonadDB WebAction User where
+instance MonadDB WebAction AnyUser where
   getEntity id            = do
     users' <- getState users
-    return $ find (\user -> userId user == UserId id) users'
+    return $ find (\user -> userId user == Identity (UserId id)) users'
   getEntities             = getState users
   insertEntity user = do
     state <- getState identity
     let nextId = (serial state) + 1
-    let user' = user { userId = UserId nextId }
+    let user' = user { userId = Identity (UserId nextId) }
     modifyState $ \_ -> state { users = (users state) ++ [user'], serial = nextId }
     return nextId
 
@@ -104,8 +134,9 @@ app = do
       Just user -> do
         webAction $ insertEntity $
           User
-          (UserId (-1))
-          (createUserFirstName user)
-          (createUserLastName user)
-          (createUserEmail user)
+          (Identity (UserId (-1)))
+          (Identity (createUserFirstName user))
+          (Identity (createUserLastName user))
+          (Identity (createUserEmail user))
+          (Identity Unknown)
         redirect "/users"
