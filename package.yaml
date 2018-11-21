@@ -21,12 +21,15 @@ description:         Please see the README on GitHub at <https://github.com/gith
 
 default-extensions:
   - DeriveGeneric
+  - FlexibleInstances
   - FunctionalDependencies
   - GeneralizedNewtypeDeriving
   - MultiParamTypeClasses
   - NoImplicitPrelude
   - OverloadedStrings
   - ScopedTypeVariables
+  - StandaloneDeriving
+  - TypeSynonymInstances
 
 dependencies:
 - base >= 4.7 && < 5
