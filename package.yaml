@@ -68,4 +68,7 @@ tests:
     - -with-rtsopts=-N
     dependencies:
     - Checkr
+    - hspec
     - QuickCheck
+    - text
+    - vector
